@@ -1,0 +1,84 @@
+# 提权执行：给网口配静态 IP，以便与 HT801 网关通信
+# 输出写到**用户临时目录**（非管理员会话也读得到）
+
+$log = Join-Path $env:TEMP 'phone-net-setup.log'
+$resultFile = Join-Path $env:TEMP 'phone-net-result.txt'
+
+function Log($msg) {
+  $line = "$(Get-Date -Format 'HH:mm:ss') $msg"
+  Add-Content -Path $log -Value $line -Encoding UTF8
+}
+
+try {
+  Remove-Item $resultFile -ErrorAction SilentlyContinue
+  Remove-Item $log -ErrorAction SilentlyContinue
+
+  Log "=== 开始配置网口 ==="
+  Log ("临时目录: " + $env:TEMP)
+
+  # 找到那个已连接但没 IP 的网口（HT801 接的那个）
+  $candidates = Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Name -notlike 'WLAN*' -and $_.Name -notlike 'Tailscale*' -and $_.Name -notlike '蓝牙*' }
+  Log ("候选网口: " + (($candidates | ForEach-Object { "$($_.Name)[$($_.InterfaceDescription)]" }) -join ' | '))
+
+  if (-not $candidates) {
+    Log "没有找到已连接的以太网口"
+    "NO_ADAPTER" | Set-Content $resultFile -Encoding UTF8
+    exit 1
+  }
+
+  $results = @()
+  foreach ($nic in $candidates) {
+    Log "--- 处理网口: $($nic.Name) ---"
+
+    # 清掉该网口上的 APIPA / 旧地址，避免多个地址冲突
+    $existing = Get-NetIPAddress -InterfaceIndex $nic.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+    foreach ($a in $existing) {
+      Log ("  移除旧地址 " + $a.IPAddress)
+      Remove-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress $a.IPAddress -Confirm:$false -ErrorAction SilentlyContinue
+    }
+
+    # 配置静态地址：先试 HT801 最可能的默认网段 192.168.0.x
+    $ok = $false
+    foreach ($target in @(
+      @{ addr = '192.168.0.2';   mask = 24; label = '192.168.0.x (HT801 默认)' },
+      @{ addr = '192.168.1.2';   mask = 24; label = '192.168.1.x (部分固件默认)' }
+    )) {
+      try {
+        New-NetIPAddress -InterfaceIndex $nic.ifIndex -IPAddress $target.addr -PrefixLength $target.mask -ErrorAction Stop | Out-Null
+        Log ("  已设置 " + $target.addr + "/" + $target.mask + "  (" + $target.label + ")")
+        $results += "$($nic.Name)|$($target.addr)/$($target.mask)|$($target.label)"
+        $ok = $true
+        break
+      } catch {
+        Log ("  设置 " + $target.addr + " 失败: " + $_.Exception.Message)
+      }
+    }
+    if (-not $ok) { $results += "$($nic.Name)|FAILED|无法设置静态地址" }
+  }
+
+  # 顺手打开防火墙放行 SIP 与 RTP 的 UDP 入站（否则网关的音频进不来）
+  try {
+    foreach ($rule in @(
+      @{ name = 'Phone Companion SIP UDP 5090'; port = '5090' },
+      @{ name = 'Phone Companion RTP UDP 15004'; port = '15004' }
+    )) {
+      if (-not (Get-NetFirewallRule -DisplayName $rule.name -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -DisplayName $rule.name -Direction Inbound -Protocol UDP `
+          -LocalPort $rule.port -Action Allow -Profile Any -ErrorAction Stop | Out-Null
+        Log ("  已放行防火墙 UDP " + $rule.port)
+      } else {
+        Log ("  防火墙规则已存在: " + $rule.name)
+      }
+    }
+  } catch {
+    Log ("  防火墙配置失败（不影响本地回环测试）: " + $_.Exception.Message)
+  }
+
+  Log "=== 完成 ==="
+  $results -join "`n" | Set-Content $resultFile -Encoding UTF8
+  exit 0
+} catch {
+  Log ("致命错误: " + $_.Exception.Message)
+  ("ERROR|" + $_.Exception.Message) | Set-Content $resultFile -Encoding UTF8
+  exit 1
+}

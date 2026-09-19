@@ -1,0 +1,58 @@
+{
+  "ready": {
+    "text": "我在听。",
+    "duration": 1.44,
+    "bytes": 11520,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:38:32"
+  },
+  "thinking": {
+    "text": "我看一下。",
+    "duration": 1.52,
+    "bytes": 12160,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:38:36"
+  },
+  "error_api": {
+    "text": "接口出错了，等我查一下日志。",
+    "duration": 3.52,
+    "bytes": 28160,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:38:47"
+  },
+  "error_empty": {
+    "text": "没听清，你再说一遍。",
+    "duration": 2.88,
+    "bytes": 23040,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:38:57"
+  },
+  "hangup_thanks": {
+    "text": "好，就这样。",
+    "duration": 1.68,
+    "bytes": 13440,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:39:03"
+  },
+  "not_bound": {
+    "text": "电话还没绑上任务。",
+    "duration": 2.48,
+    "bytes": 19840,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:39:11"
+  },
+  "reply_done": {
+    "text": "我说完了。",
+    "duration": 1.6,
+    "bytes": 12800,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:39:17"
+  },
+  "long_work": {
+    "text": "这个要算一会儿，你先放着听筒也行。",
+    "duration": 3.68,
+    "bytes": 29440,
+    "speaker": "vivian",
+    "generated_at": "2026-09-13 19:39:28"
+  }
+}

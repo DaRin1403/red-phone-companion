@@ -1,0 +1,14 @@
+# 换行符统一：仓库里存 LF，检出时由 Git 按平台处理。
+# 不写这个的话，Windows 上 git 会一边警告一边把文件改成 CRLF，
+# 别人的 diff 里就会混进一堆看不见的换行改动。
+* text=auto eol=lf
+
+# 这些是二进制，别做任何换行转换（改了会直接损坏音频数据）
+*.mulaw binary
+*.wav binary
+*.png binary
+*.zstd binary
+
+# GitHub 语言统计：把脚本目录标记为"非源码"，免得 Stats 被工具脚本淹没
+工具/* linguist-documentation
+docs/* linguist-documentation

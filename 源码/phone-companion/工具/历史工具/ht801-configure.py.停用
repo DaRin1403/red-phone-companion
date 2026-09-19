@@ -1,0 +1,170 @@
+# -*- coding: utf-8 -*-
+"""
+ht801-configure.py —— 配置 Grandstream HT801/HT802 网关，让它摘机自动呼叫本机服务
+
+为什么需要这个脚本：HT801 的网页后台字段极多，手动逐项填容易漏。
+本脚本直接调它的网页配置接口（`/cgi-bin/api.values.post`），改完回读验证。
+
+配置项来源：参考实现 prikevs/codex-redline（MIT）已验证的 HT801/HT802 V1 固件 P 值。
+**不同固件的 P 编号可能变化**，所以脚本会先 inspect 回读，确认生效了才提示重启。
+
+用法：
+  python ht801-configure.py inspect                # 只读当前配置，不改动
+  python ht801-configure.py configure              # 写入配置（先自动备份原值）
+  python ht801-configure.py restore                # 回滚到备份的原值
+
+环境变量：
+  HT801_ADDRESS   网关地址            默认 192.168.82.100
+  HT801_PASSWORD  管理员密码          默认 admin
+  HT801_LOCAL     本机在电话网段的地址 默认 192.168.82.1
+  HT801_SIP_PORT  本机 SIP 端口        默认 5090
+  HT801_USER      摘机自动拨号的号码    默认 263
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ADDRESS = os.environ.get("HT801_ADDRESS", "192.168.82.100")
+PASSWORD = os.environ.get("HT801_PASSWORD", "admin")
+LOCAL = os.environ.get("HT801_LOCAL", "192.168.82.1")
+SIP_PORT = os.environ.get("HT801_SIP_PORT", "5090")
+DIAL_USER = os.environ.get("HT801_USER", "263")
+
+BACKUP = Path(__file__).resolve().parent.parent / ".runtime" / "ht801-original.json"
+
+# 要写入的 P 值（来自参考实现已验证的 V1 固件）
+DESIRED = {
+    # ---- FXS Port 1 ----
+    "P47": f"{LOCAL}:{SIP_PORT}",   # Primary SIP Server：把 PHONE1 的请求发到本机
+    "P35": "redline",               # SIP User ID：本地标识，不需要公网账号
+    "P31": "0",                     # SIP Registration：直连方案不注册
+    "P71": DIAL_USER,               # Off Hook Auto Dial：摘机立即拨这个号
+    "P4045": "0",                   # Off Hook Auto Dial Delay：不等待
+    "P850": "101",                  # DTMF Payload Type：与 RFC4733 协商一致
+    "P870": "0",                    # DTMF 方式：RFC2833
+    "P4010": "c=2000/4000;",        # System Ring Cadence：每次响 2 秒、停 4 秒
+}
+
+# 静态 IP（可选，让网关地址固定，免得每次找）
+STATIC_IP = {
+    "P8": "1",                      # 静态 IPv4
+    "P9": "192", "P10": "168", "P11": "82", "P12": "100",
+    "P13": "255", "P14": "255", "P15": "255", "P16": "0",
+}
+
+
+def call(values: dict, *, write: bool) -> dict:
+    """调用网关配置接口。write=False 时只读。"""
+    base = f"http://{ADDRESS}/cgi-bin/api.values"
+    url = f"{base}.post" if write else f"{base}.get"
+    data = urllib.parse.urlencode(values).encode()
+    req = urllib.request.Request(url, data=data if write else None)
+    req.add_header("User-Agent", "phone-companion/0.1")
+    if write:
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    # 不走代理：网关在局域网里，走代理必然失败
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=10) as resp:
+        body = resp.read().decode("utf-8", "replace")
+    out = {}
+    for line in body.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def do_inspect() -> int:
+    keys = list(DESIRED.keys())
+    try:
+        got = call({k: "" for k in keys}, write=False)
+    except Exception as exc:
+        print(f"✗ 无法连接网关 {ADDRESS}：{type(exc).__name__}: {exc}")
+        print("  检查：①网关是否通电 ②电脑是否配了 192.168.82.1/24 ③网线是否接对")
+        return 1
+
+    print(f"=== {ADDRESS} 当前关键配置 ===")
+    all_ok = True
+    for k, want in DESIRED.items():
+        have = got.get(k)
+        flag = "✓" if have == want else "✗"
+        if have != want:
+            all_ok = False
+        print(f"  {flag} {k:>6} = {have!r:28} 期望 {want!r}")
+    print()
+    print("结论：" + ("配置已符合预期。" if all_ok else "有项不符，执行 configure 写入。"))
+    return 0 if all_ok else 2
+
+
+def do_configure(include_static: bool) -> int:
+    values = dict(DESIRED)
+    if include_static:
+        values.update(STATIC_IP)
+
+    # 1) 先备份原值（只在第一次写，避免覆盖基线）
+    BACKUP.parent.mkdir(parents=True, exist_ok=True)
+    if not BACKUP.exists():
+        try:
+            original = call({k: "" for k in values}, write=False)
+            BACKUP.write_text(json.dumps(original, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"已备份原值到 {BACKUP}")
+        except Exception as exc:
+            print(f"⚠️ 备份失败（继续写入）：{exc}")
+    else:
+        print(f"原值基线已存在，不覆盖：{BACKUP}")
+
+    # 2) 写入
+    try:
+        call(values, write=True)
+    except Exception as exc:
+        print(f"✗ 写入失败：{type(exc).__name__}: {exc}")
+        return 1
+    print(f"已提交 {len(values)} 项配置")
+
+    # 3) 回读验证
+    print()
+    return do_inspect()
+
+
+def do_restore() -> int:
+    if not BACKUP.exists():
+        print(f"✗ 没有找到备份 {BACKUP}，无法回滚")
+        return 1
+    original = json.loads(BACKUP.read_text(encoding="utf-8"))
+    print(f"从 {BACKUP} 回滚 {len(original)} 项…")
+    try:
+        call(original, write=True)
+    except Exception as exc:
+        print(f"✗ 回滚写入失败：{exc}")
+        return 1
+    print("回滚已提交。请到网页后台确认，并把电脑网卡改回 DHCP 或原配置。")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="配置 HT801/HT802 摘机自动拨号")
+    ap.add_argument("action", choices=["inspect", "configure", "restore"])
+    ap.add_argument("--static-ip", action="store_true",
+                    help="同时写入静态 IP 192.168.82.100/24（首次配置用）")
+    args = ap.parse_args()
+
+    print(f"网关 {ADDRESS}   本机 {LOCAL}:{SIP_PORT}   摘机拨号 {DIAL_USER}\n")
+    if args.action == "inspect":
+        return do_inspect()
+    if args.action == "configure":
+        code = do_configure(args.static_ip)
+        if code == 0:
+            print("\n请在网关后台点保存后重启，然后从电脑 ping 一下确认：")
+            print(f"    ping {ADDRESS}")
+        return code
+    return do_restore()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

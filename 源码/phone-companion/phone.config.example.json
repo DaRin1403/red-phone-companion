@@ -1,0 +1,45 @@
+{
+  "_说明": "红色座机语音终端配置模板。复制成 phone.config.json 再改。改完重启服务生效。",
+  "_必改项": "workspace（你的 DSH 工作区路径）和 ataAddress（你网关的实际地址）。",
+
+  "_网络说明": "localAddress 写 auto 会按『通往网关的那张网卡』自动探测，多网卡机器强烈建议保持 auto。",
+  "localAddress": "auto",
+  "sipPort": 5090,
+  "rtpPort": 15004,
+  "sipUser": "companion",
+
+  "_网关说明": "HT801/HT802 的地址。它直连电脑网口时通常是自己一个网段，例如 192.168.1.1 或 172.50.1.103。",
+  "ataAddress": "172.50.1.103",
+  "ataSipPort": 5060,
+  "ataUser": "companion",
+
+  "_识别服务": "本地识别（CapsWriter-Offline）的 WebSocket 地址。",
+  "asrUrl": "ws://127.0.0.1:6016",
+  "asrTimeoutMs": 30000,
+
+  "_工作区说明": "★必改★ 你的 DSH 工作区根目录。回铃检测靠它定位会话文件，写错就不会响铃。",
+  "workspace": "C:\\你的\\DSH工作区",
+
+  "_注入目标窗口": "把文字打进哪个窗口。默认匹配 DSH 网页端。",
+  "injectTitleMatch": "DeepSeek Harness|DSH|localhost:3080|127\\.0\\.0\\.1:3080",
+
+  "sessionPollMs": 1000,
+  "replyTimeoutMs": 900000,
+
+  "_静音判定": "整段录音峰值低于此值就认为没人说话，不送识别。防止 ASR 在静音上凭空编字（实测会把静音识别成「我。」并提交）。说话峰值通常几千以上，300 很保守。",
+  "silencePeakThreshold": 300,
+
+  "_回铃说明": "回铃是【通知铃】不是电话：响 ringCount 声后自动挂断，不需要你去接听。",
+  "_回铃总开关": "false 时一声都不响。",
+  "ringbackEnabled": true,
+
+  "_响铃次数": "响几声。「1」= 只听一声。次数按网关铃音节奏推算（SIP 不会每响一声都通知我们），所以下面两个节奏值必须和网关 P4010 一致 —— 用 python ht801.py inspect 核对。",
+  "ringCount": 1,
+  "_铃音节奏": "要和网关 P4010 一致。本项目推荐 c=1000/1000（响1秒停1秒），即 1000/1000。",
+  "ringCadenceOnMs": 1000,
+  "ringCadenceOffMs": 1000,
+
+  "_安全上限": "万一节奏配错，响铃也不会超过这个秒数。",
+  "ringRings": 2,
+  "ringTimeoutSeconds": 10
+}

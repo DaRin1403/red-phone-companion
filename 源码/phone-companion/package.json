@@ -1,0 +1,27 @@
+{
+  "name": "phone-companion",
+  "version": "1.0.0",
+  "description": "把一台老式模拟电话机（经 HT801/HT802 网关）接成 AI 编程助手的语音输入与通知终端：摘机说话、自动提交、AI 回复完电话响铃",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "sip", "rtp", "g711", "pcmu", "fxs", "ht801", "ht802",
+    "grandstream", "telephone", "voice-input", "speech-to-text",
+    "local-first", "offline", "automation"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"src/**/*.test.mjs\"",
+    "start": "node src/phone-control.mjs start",
+    "selftest": "node src/phone-control.mjs selftest",
+    "status": "node src/phone-control.mjs status",
+    "simulate": "node src/phone-control.mjs 模拟来电 --seconds 3 --no-submit",
+    "web": "node web/server.mjs",
+    "launcher": "node 启动.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>红色座机语音终端 · 控制台</title>
+<!--
+  为什么整个界面挤在一个文件里、不用任何前端框架：
+  这个项目的使用者要自己接线配网关，控制台必须"clone 下来就能开"。
+  引入构建步骤或 CDN，落地门槛立刻抬高一大截。
+  所以：原生 JS + 内联样式，离线可用，双击就打不开全靠本机 Node 供着。
+-->
+<style>
+  :root{
+    --bg:#14100f; --panel:#1d1817; --line:#332b29;
+    --fg:#efe7e4; --dim:#9c8f8b; --red:#e0413a; --red-dim:#7a2420;
+    --ok:#3fb950; --warn:#d29922; --bad:#e0413a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}
+  a{color:var(--red)}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 18px 60px}
+
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  h1{font-size:19px;margin:0;font-weight:600;letter-spacing:.5px}
+  h1 .dot{color:var(--red)}
+  .sub{color:var(--dim);font-size:12.5px}
+  .spacer{flex:1}
+
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:7px 15px;border-radius:999px;
+         font-weight:600;border:1px solid var(--line);background:var(--panel)}
+  .badge .dot{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+  .badge.idle .dot{background:#4a423f}
+  .badge.listening .dot,.badge.ready .dot{background:var(--ok);animation:pulse 1s infinite}
+  .badge.transcribing .dot,.badge.submitting .dot{background:var(--warn);animation:pulse .6s infinite}
+  .badge.ringing .dot{background:var(--red);animation:pulse .35s infinite}
+  .badge.off .dot{background:#5a4a48}
+  .badge.off{color:var(--dim)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .grid{display:grid;gap:12px;margin-top:16px}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+  .g2{grid-template-columns:1.15fr .85fr}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 15px}
+  .card h2{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--dim);
+           text-transform:none;letter-spacing:.4px}
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:13px}
+  .kv span:first-child{color:var(--dim)}
+  .kv b{font-weight:600}
+  .mono{font-family:ui-monospace,Consolas,"Cascadia Mono",monospace;font-size:12.5px}
+
+  .health{display:flex;align-items:center;gap:10px}
+  .health .ico{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+               font-size:13px;font-weight:700;flex:0 0 auto}
+  .ok .ico{background:rgba(63,185,80,.15);color:var(--ok)}
+  .bad .ico{background:rgba(224,65,58,.15);color:var(--bad)}
+  .warn .ico{background:rgba(210,153,34,.15);color:var(--warn)}
+  .health .t{font-weight:600;font-size:13.5px}
+  .health .d{color:var(--dim);font-size:12px;word-break:break-all}
+
+  button{font:inherit;font-size:13px;padding:8px 15px;border-radius:8px;cursor:pointer;
+         background:#2a2321;color:var(--fg);border:1px solid var(--line);transition:.15s}
+  button:hover:not(:disabled){background:#362d2a;border-color:#4a3f3b}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:var(--red-dim);border-color:#96302a}
+  button.primary:hover:not(:disabled){background:#96302a}
+  .row{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px}
+
+  ul.said{list-style:none;margin:0;padding:0;max-height:230px;overflow:auto}
+  ul.said li{padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px}
+  ul.said li:last-child{border-bottom:0}
+  ul.said .t{color:var(--dim);font-size:11.5px;font-family:ui-monospace,monospace}
+
+  form.cfg{display:grid;grid-template-columns:auto 1fr;gap:9px 12px;align-items:center}
+  form.cfg label{color:var(--dim);font-size:12.5px}
+  input[type=text],input[type=number]{width:100%;background:#100d0c;border:1px solid var(--line);
+    color:var(--fg);border-radius:7px;padding:7px 10px;font:inherit;font-size:13px}
+  input:focus{outline:0;border-color:var(--red)}
+  .chk{display:flex;align-items:center;gap:8px}
+  .chk input{width:16px;height:16px;accent-color:var(--red)}
+
+  pre.log{margin:0;background:#0d0a09;border:1px solid var(--line);border-radius:8px;padding:11px;
+          max-height:300px;overflow:auto;font-family:ui-monospace,Consolas,monospace;
+          font-size:11.5px;line-height:1.55;color:#c9bfbc;white-space:pre-wrap;word-break:break-all}
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+         background:#2a2321;border:1px solid var(--line);padding:11px 18px;border-radius:9px;
+         font-size:13px;opacity:0;pointer-events:none;transition:.25s;max-width:80vw}
+  .toast.show{opacity:1}
+  .muted{color:var(--dim);font-size:12.5px}
+  @media(max-width:760px){.g2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1><span class="dot">●</span> 红色座机语音终端</h1>
+    <span class="sub">本地控制台</span>
+    <span class="spacer"></span>
+    <span id="badge" class="badge off"><span class="dot"></span><span id="badgeText">读取中…</span></span>
+  </header>
+  <div class="sub" id="headline">正在连接本地服务…</div>
+
+  <div class="grid g4" id="health"></div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h2>控制</h2>
+      <div class="row">
+        <button id="btnStart" class="primary">启动电话服务</button>
+        <button id="btnStop">停止</button>
+        <button id="btnSelf">跑一遍自检</button>
+        <button id="btnRing">试响一声</button>
+      </div>
+      <div class="kv" style="margin-top:12px"><span>服务进程</span><b id="pid" class="mono">—</b></div>
+      <div class="kv"><span>已接电话 / 已提交</span><b id="cntCalls" class="mono">—</b></div>
+      <div class="kv"><span>回复完成 / 已响铃</span><b id="cntRing" class="mono">—</b></div>
+      <div class="kv"><span>等待回复</span><b id="pending">—</b></div>
+      <div id="cmdOut" class="mono muted" style="margin-top:10px;white-space:pre-wrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>它听到的话</h2>
+      <ul class="said" id="said"><li class="muted">还没有记录。控制台开着的时候才会攒历史。</li></ul>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h2>设置<em class="sub" style="font-style:normal"> · 改完需要重启服务</em></h2>
+      <form class="cfg" id="cfgForm">
+        <label>响铃总开关</label>
+        <div class="chk"><input type="checkbox" id="cfg_ringbackEnabled"><span class="muted">关掉就一声都不响</span></div>
+        <label>响几声</label>
+        <input type="number" id="cfg_ringCount" min="1" max="20">
+        <label>铃音节奏（响/停 ms）</label>
+        <div style="display:flex;gap:8px">
+          <input type="number" id="cfg_ringCadenceOnMs" min="100" max="10000">
+          <input type="number" id="cfg_ringCadenceOffMs" min="100" max="10000">
+        </div>
+        <label>静音阈值</label>
+        <input type="number" id="cfg_silencePeakThreshold" min="0" max="30000">
+        <label>网关地址</label>
+        <input type="text" id="cfg_ataAddress">
+        <label>网关 / 本机 SIP 端口</label>
+        <div style="display:flex;gap:8px">
+          <input type="number" id="cfg_ataSipPort" min="1" max="65535">
+          <input type="number" id="cfg_sipPort" min="1" max="65535">
+        </div>
+      </form>
+      <div class="row" style="margin-top:12px">
+        <button id="btnSave" class="primary">保存设置</button>
+        <span class="muted" id="saveHint"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>服务日志</h2>
+      <pre class="log" id="log">读取中…</pre>
+    </div>
+  </div>
+
+  <div class="muted" style="margin-top:18px">
+    控制台只监听本机 <span class="mono">127.0.0.1</span>，不参与通话 —— 通话全程在电话服务里，控制台关了也不影响打电话。
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let lastLog = '';
+
+function toast(msg, ms = 2600) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), ms);
+}
+
+const STATE_TEXT = {
+  idle: '待机', ready: '已摘机', listening: '正在听你说', transcribing: '识别中',
+  submitting: '提交中', ringing: '正在响铃（我回复完了）', error: '出错了',
+};
+
+function renderHealth(s) {
+  const items = [];
+
+  // 网口
+  // 判据是"有没有和网关同网段的地址"，不是"存在多少个 169.254 地址" ——
+  // 蓝牙/Tailscale 那些虚拟网卡常年都是自动私有地址，按数量判断会全员报红。
+  const nicOk = Boolean(s.nic.matchingGateway);
+  items.push({
+    k: nicOk ? 'ok' : (s.nic.suspicious.length ? 'bad' : 'warn'),
+    t: '本机网口',
+    d: s.nic.matchingGateway
+      ? `${s.nic.matchingGateway.name} · ${s.nic.matchingGateway.address}`
+      : (s.nic.suspicious.length
+        ? `${s.nic.suspicious[0].name} 只拿到自动私有地址 ${s.nic.suspicious[0].address} —— 静态 IP 没配上`
+        : '没找到和网关同网段的地址'),
+  });
+
+  // 网关
+  items.push({
+    k: s.gateway.reachable ? 'ok' : 'warn',
+    t: '网关 ' + (s.gateway.address || '未配置'),
+    d: s.gateway.reachable ? 'ping 得通' : 'ping 不通（UDP 无连接，能打电话也可能 ping 不通）',
+  });
+
+  // 识别服务
+  items.push({
+    k: s.asr.online ? 'ok' : 'bad',
+    t: '识别服务',
+    d: s.asr.online ? '127.0.0.1:6016 在线' : '没在跑 —— 电话能打通但识别不了',
+  });
+
+  // 电话服务
+  const svc = s.service;
+  items.push({
+    k: svc.running ? 'ok' : 'bad',
+    t: '电话服务',
+    d: svc.running
+      ? `PID ${svc.pid} · SIP ${svc.ports.sip ? '在听' : '未监听'} / RTP ${svc.ports.rtp ? '在听' : '未监听'}`
+      : '没在跑',
+  });
+
+  $('health').innerHTML = items.map((i) => `
+    <div class="card health ${i.k}">
+      <div class="ico">${i.k === 'ok' ? '✓' : i.k === 'bad' ? '✕' : '!'}</div>
+      <div><div class="t">${i.t}</div><div class="d">${i.d}</div></div>
+    </div>`).join('');
+}
+
+function renderSaid(list) {
+  if (!list || !list.length) {
+    $('said').innerHTML = '<li class="muted">还没有记录。控制台开着的时候才会攒历史。</li>';
+    return;
+  }
+  $('said').innerHTML = list.map((x) => `
+    <li><div class="t">${new Date(x.at).toLocaleTimeString('zh-CN')}</div>${escapeHtml(x.text)}</li>`).join('');
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+let firstConfigFill = true;
+function fillConfig(cfg) {
+  if (!cfg || !firstConfigFill) return;
+  firstConfigFill = false;
+  for (const k of ['ringCount', 'ringCadenceOnMs', 'ringCadenceOffMs', 'silencePeakThreshold',
+    'ataAddress', 'ataSipPort', 'sipPort']) {
+    const el = $('cfg_' + k);
+    if (el) el.value = cfg[k] ?? '';
+  }
+  $('cfg_ringbackEnabled').checked = cfg.ringbackEnabled !== false;
+}
+
+function onSave() {
+  const patch = {
+    ringbackEnabled: $('cfg_ringbackEnabled').checked,
+    ringCount: Number($('cfg_ringCount').value),
+    ringCadenceOnMs: Number($('cfg_ringCadenceOnMs').value),
+    ringCadenceOffMs: Number($('cfg_ringCadenceOffMs').value),
+    silencePeakThreshold: Number($('cfg_silencePeakThreshold').value),
+    ataAddress: $('cfg_ataAddress').value.trim(),
+    ataSipPort: Number($('cfg_ataSipPort').value),
+    sipPort: Number($('cfg_sipPort').value),
+  };
+  fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) })
+    .then((r) => r.json())
+    .then((r) => toast(r.ok ? '已保存。重启服务后生效。' : ('保存失败：' + (r.error || '未知'))))
+    .catch((e) => toast('保存失败：' + e.message));
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/api/state')).json();
+    const svc = s.service;
+
+    const st = svc.running ? (svc.state || 'idle') : 'off';
+    $('badge').className = 'badge ' + (svc.running ? st : 'off');
+    $('badgeText').textContent = svc.running ? (STATE_TEXT[st] || st) : '服务未启动';
+    $('headline').textContent = svc.running
+      ? (svc.handset === 'off_hook' ? '听筒已拿起' : '话机挂好，等摘机')
+      : '电话服务没在跑 —— 点「启动电话服务」';
+
+    renderHealth(s);
+    renderSaid(s.transcripts);
+    fillConfig(s.config);
+
+    $('pid').textContent = svc.running ? svc.pid : '—';
+    const st2 = svc.stats || {};
+    $('cntCalls').textContent = svc.running ? `${st2.calls ?? 0} / ${st2.submitted ?? 0}` : '—';
+    $('cntRing').textContent = svc.running ? `${st2.completions ?? 0} / ${st2.rings ?? 0}` : '—';
+    $('pending').textContent = svc.pendingReply
+      ? `有（${svc.pendingReply.chars} 字，等我说完就响铃）`
+      : '无';
+
+    $('btnStart').disabled = svc.running;
+    $('btnStop').disabled = !svc.running;
+    $('btnRing').disabled = !svc.running;
+
+    const log = await (await fetch('/api/log?n=120')).json();
+    if (log.log !== lastLog) { lastLog = log.log; $('log').textContent = log.log; $('log').scrollTop = $('log').scrollHeight; }
+  } catch (e) {
+    $('badge').className = 'badge off';
+    $('badgeText').textContent = '控制台连不上后端';
+    $('headline').textContent = String(e.message || e);
+  }
+}
+
+async function act(url, label) {
+  $('cmdOut').textContent = label + ' …';
+  try {
+    const r = await (await fetch(url, { method: 'POST' })).json();
+    const ok = r.ok !== false;
+    $('cmdOut').textContent = (ok ? '✓ ' : '✗ ') + label + '\n'
+      + (r.out || r.err || JSON.stringify(r)).slice(0, 1200);
+    toast(ok ? (label + ' 完成') : (label + ' 失败'));
+    if (url.includes('/service/')) setTimeout(refresh, 1500);
+  } catch (e) {
+    $('cmdOut').textContent = '✗ ' + label + ' 出错：' + e.message;
+    toast(label + ' 出错');
+  }
+}
+
+$('btnStart').onclick = () => act('/api/service/start', '启动电话服务');
+$('btnStop').onclick = () => act('/api/service/stop', '停止电话服务');
+$('btnSelf').onclick = () => act('/api/selftest', '自检');
+$('btnRing').onclick = () => act('/api/ring-test', '试响一声');
+$('btnSave').onclick = (e) => { e.preventDefault(); onSave(); };
+$('cfgForm').onsubmit = (e) => { e.preventDefault(); onSave(); };
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
