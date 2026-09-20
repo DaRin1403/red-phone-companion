@@ -1,4 +1,4 @@
-﻿/**
+/**
  * phone-machine.test.mjs —— 电话状态机测试
  *
  * 全部依赖用假实现注入，把整条闭环跑干净：
@@ -22,6 +22,44 @@ test('cleanTranscript：去掉打电话的试音词与结尾杂音', () => {
   assert.equal(cleanTranscript('嗯，好的'), '好的');
   // "测试"不是废话，不能被删（曾误清成"一下麦克风"）
   assert.equal(cleanTranscript('哈喽，测试一下麦克风'), '测试一下麦克风');
+});
+
+test('cleanTranscript：去掉「线路试音话」——拿起来先确认通不通的那句', () => {
+  // 真机实测：用户拿起听筒习惯先说一句"我在听"确认线路，然后才说正事。
+  // 下面两条是真实提交上来的原文（第 52、53 轮），试音话混进了正文。
+  assert.equal(
+    cleanTranscript('我在听嗯，总结一下这个项目'), '总结一下这个项目',
+    '「我在听嗯，」是试音，正事是后半截',
+  );
+  assert.equal(
+    cleanTranscript('我在听呃，你看一下这个 bug 会不会复现'), '你看一下这个 bug 会不会复现',
+    '试音话后面接语气词也要能清掉',
+  );
+  // 语气词 + 试音话叠加
+  assert.equal(cleanTranscript('嗯，我在听，帮我查一下天气'), '帮我查一下天气');
+  // 其他常见说法
+  assert.equal(cleanTranscript('听得到吗，说一下今天的计划'), '说一下今天的计划');
+  assert.equal(cleanTranscript('能听到吗？把拍摄计划整理一下'), '把拍摄计划整理一下');
+  assert.equal(cleanTranscript('在吗，帮我算一下'), '帮我算一下');
+});
+
+test('cleanTranscript：试音话规则不能误伤正文（防呆的反向断言）', () => {
+  // ⚠️ 必须要求试音话后面**紧跟语气词或标点**才清 —— 试音话说完人一定会停一下。
+  //    否则「我在听一下那个录音」会被削成「一下那个录音」，意思全变。
+  assert.equal(
+    cleanTranscript('我在听一下那个录音'), '我在听一下那个录音',
+    '「我在听一下…」里"我在听"是正文，不能删',
+  );
+  assert.equal(
+    cleanTranscript('我在听录音里的鼓点'), '我在听录音里的鼓点',
+    '后面直接跟名词时也不能删',
+  );
+  assert.equal(
+    cleanTranscript('我在听你说'), '我在听你说',
+    '「我在听你说」是完整意思，不能删',
+  );
+  // 整句就只有试音话：清完为空 → cleanTranscript 退回原文（刻意的保守行为）
+  assert.equal(cleanTranscript('我在听'), '我在听', '宁可多提交一句，也不要把用户的话吞掉');
 });
 
 test('cleanTranscript：正常句子不被误伤', () => {
