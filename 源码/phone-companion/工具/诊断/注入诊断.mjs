@@ -22,7 +22,9 @@ import os from 'node:os';
 
 const execFileP = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SCRIPT = join(HERE, '注入文字.ps1');
+// 本工具在 工具/诊断/ 下，而脚本在上一级 工具/ —— 重构挪目录时漏了这个 '..'，
+// 结果它去 工具/诊断/注入文字.ps1 找，PowerShell 报"无法识别为 cmdlet"。
+const SCRIPT = join(HERE, '..', '注入文字.ps1');
 
 const MARK = `【注入诊断-${Date.now().toString(36)}】`;
 const TEXT = `${MARK} 这条文字是座机项目注入的测试内容，请忽略。`;

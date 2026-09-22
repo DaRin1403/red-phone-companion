@@ -354,8 +354,25 @@ async function cmdSelftest(cfg) {
       const inj = new DshInjector({ titleMatch: cfg.injectTitleMatch, timeoutMs: 30000 });
       const res = await inj.listWindows();
       const cands = res.windows.filter((w) => w.candidate);
-      if (cands.length) ok('注入目标窗口', `${cands.length} 个候选，如 [${cands[0].process}] ${cands[0].title.slice(0, 40)}`);
-      else bad('注入目标窗口', '未找到标题匹配的窗口（DSH 页面是否关掉了？）');
+      if (cands.length) {
+        ok('注入目标窗口', `${cands.length} 个候选，如 [${cands[0].process}] ${cands[0].title.slice(0, 40)}`);
+      } else {
+        // 找不到时，把**浏览器窗口实际叫什么**报出来 —— 否则用户完全无从下手。
+        // 真机踩过：DSH 页面开在后台标签页时，窗口标题跟着**当前激活的标签页**走，
+        // 于是标题匹配落空。这时候光说"DSH 页面是否关掉了"是误导 —— 页面明明开着。
+        const browsers = /msedge|chrome|firefox|brave|opera|vivaldi/i;
+        const seen = res.windows.filter((w) => browsers.test(w.process));
+        let detail = '未找到标题匹配的窗口';
+        if (seen.length) {
+          detail += `。当前浏览器窗口标题是「${seen[0].title.slice(0, 60)}」`
+            + ' —— 窗口标题跟着【当前激活的标签页】走，'
+            + '请把浏览器切回 DSH 那一页再试（注入是照着标题找窗口的）';
+        } else {
+          detail += '（一个浏览器窗口都没看到，DSH 页面是否关掉了？）';
+        }
+        detail += `\n    匹配规则: ${cfg.injectTitleMatch}`;
+        bad('注入目标窗口', detail);
+      }
     } catch (err) {
       bad('注入目标窗口', String(err?.message ?? err));
     }

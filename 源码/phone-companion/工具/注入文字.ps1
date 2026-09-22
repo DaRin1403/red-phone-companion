@@ -50,6 +50,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 
+# Write our output as UTF-8.
+# Windows PowerShell 5.1 defaults to the console codepage (GBK on this machine) for
+# redirected output, while the Node caller decodes it as UTF-8 -- so every Chinese
+# window title came back as mojibake, which made the "here is what I saw" hints
+# useless. Setting this at the top fixes it for both stdout and stderr.
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+
 # -TextFile wins over -Text: the Node caller writes the text into a temp file
 # and passes the path, so long text, quotes and newlines never hit PowerShell's
 # argv quoting rules or the command line length limit.
@@ -140,7 +147,28 @@ if ($ListWindows) {
 
 $targets = @([Win]::ListVisible() | Where-Object { $_.Title -match $TitleMatch })
 if ($targets.Count -eq 0) {
-  Write-Error "No window title matched '$TitleMatch'. Run with -ListWindows to see what is available."
+  # Make the failure actionable. The most common cause by far is that the DSH page is
+  # open in a BACKGROUND tab: a browser window's title follows whichever tab is
+  # active, so the moment the user switches to another site the title stops matching
+  # and this lookup finds nothing -- even though the DSH page is right there.
+  #
+  # NOTE: write these lines with [Console]::Error, not Write-Error. With
+  # $ErrorActionPreference='Stop' the FIRST Write-Error terminates the script, so a
+  # multi-line hint built from Write-Error only ever printed its first line.
+  $e = [Console]::Error
+  $e.WriteLine("No window title matched '$TitleMatch'.")
+  $browserRe = 'msedge|chrome|firefox|brave|opera|vivaldi'
+  $seen = @([Win]::ListVisible() | Where-Object { $_.Process -match $browserRe })
+  if ($seen.Count -gt 0) {
+    $e.WriteLine("Browser windows visible right now (their title follows the ACTIVE tab):")
+    foreach ($w in ($seen | Select-Object -First 5)) {
+      $e.WriteLine("  [{0}] {1}" -f $w.Process, $w.Title)
+    }
+    $e.WriteLine("If the DSH page is open but sitting in a background tab, switch to that tab and retry.")
+  } else {
+    $e.WriteLine("No browser window is visible at all -- is the DSH page closed?")
+  }
+  $e.WriteLine("Run with -ListWindows to see every visible window.")
   exit 2
 }
 $win = $targets | Sort-Object { $_.Title.Length } | Select-Object -First 1
